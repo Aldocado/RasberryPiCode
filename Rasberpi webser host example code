@@ -1,0 +1,97 @@
+import network
+import socket
+from time import sleep
+from picozero import pico_temp_sensor, pico_led
+import machine
+import rp2
+import sys
+
+ssid = '#network name here' 
+password = '#network password here' 
+
+
+#conect you to wifi and returns your ip
+def connect():
+    #connects pico w to wifi by creating an object from libary
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    #sending wifiname + password to object
+    
+    #this will send request to join specified network router repidetly until conected this it also known as a handshake
+    #while loop runs if to test for connection == true then wait a sec and runs again
+    while wlan.isconnected() == False:
+        #if bootsel button presed program will quit
+        if rp2.bootsel_button() == 1:
+            sys.exit()
+        
+        #prints a wait message then it turns on the board led for .5 seconds and off for .5 seconds then loops
+        print('Waiting for connection...')
+        pico_led.on()
+        sleep(0.5)
+        pico_led.off()
+        sleep(0.5)
+        
+    ip = wlan.ifconfig()[0]
+    print(f'Connected on {ip}')
+    pico_led.on()
+    return ip
+
+#creates a socket so that the server can listen to the client
+def open_socket(ip):
+    address = (ip, 80)
+    connection = socket.socket()
+    connection.bind(address)
+    connection.listen(1000)
+    print(connection) #if socket state=1 tells you that your socket is working.
+    return connection
+    
+def webpage(temperature, state):
+    #Template HTML
+    html = f"""
+            <!DOCTYPE html>
+            <html>
+            <form action="./lighton">
+            <input type="submit" value="Light on" />
+            </form>
+            <form action="./lightoff">
+            <input type="submit" value="Light off" />
+            </form>
+            <p>LED is {state}</p>
+            <p>Temperature is {temperature}</p>
+            </body>
+            </html>
+            """
+    return str(html)
+
+#this starts up the web server
+def serve(connection):
+    sate = 'off'
+    pico_led.off()
+    temperature = 0 
+    #this will keep the web server up and lissening all the time to any client that conects to it
+    while True:
+        client = connection.accept()[0]
+        request = client.recv(1024)
+        request = str(request)
+        try:
+            request = request.split()[1]
+        except IndexError:
+            pass
+        if request == '/lighton?':
+            pico_led.on()
+            state = 'ON'
+        elif request == '/lightoff?':
+            pico_led.off()
+            state = 'OFF'
+        elif request == '/close?':
+            sys.exit()
+        temperature = pico_temp_sensor.temp
+        html = webpage(temperature, sate)
+        client.send(html)
+        client.close()
+
+    
+ip = connect()
+connection = open_socket(ip)
+serve(connection)
